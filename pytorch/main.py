@@ -66,8 +66,8 @@ def main(context):
 
         return model
 
-    model = create_model()
-    ema_model = create_model(ema=True)
+    model = create_model() # student
+    ema_model = create_model(ema=True) # teacher
 
     LOG.info(parameters_string(model))
 
@@ -164,7 +164,7 @@ def create_data_loaders(train_transformation,
     if args.exclude_unlabeled:
         sampler = SubsetRandomSampler(labeled_idxs)
         batch_sampler = BatchSampler(sampler, args.batch_size, drop_last=True)
-    elif args.labeled_batch_size:
+    elif args.labeled_batch_size: # a special batch sampler
         batch_sampler = data.TwoStreamBatchSampler(
             unlabeled_idxs, labeled_idxs, args.batch_size, args.labeled_batch_size)
     else:
@@ -287,7 +287,7 @@ def train(train_loader, model, ema_model, optimizer, epoch, log):
         loss.backward()
         optimizer.step()
         global_step += 1
-        update_ema_variables(model, ema_model, args.ema_decay, global_step)
+        update_ema_variables(model, ema_model, args.ema_decay, global_step) # TODO: important!!!
 
         # measure elapsed time
         meters.update('batch_time', time.time() - end)
