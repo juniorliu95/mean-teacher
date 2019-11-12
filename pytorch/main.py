@@ -49,13 +49,13 @@ def main(context):
     num_classes = dataset_config.pop('num_classes')
     train_loader, eval_loader = create_data_loaders(**dataset_config, args=args)
 
-    def create_model(ema=False):
+    def create_model(ema=False): # exponential moving average
         LOG.info("=> creating {pretrained}{ema}model '{arch}'".format(
             pretrained='pre-trained ' if args.pretrained else '',
             ema='EMA ' if ema else '',
             arch=args.arch))
 
-        model_factory = architectures.__dict__[args.arch]
+        model_factory = architectures.__dict__[args.arch] # ResNet18 etc.
         model_params = dict(pretrained=args.pretrained, num_classes=num_classes)
         model = model_factory(**model_params)
         model = nn.DataParallel(model).cuda()
