@@ -49,7 +49,7 @@ def main(context):
     num_classes = dataset_config.pop('num_classes')
     train_loader, eval_loader = create_data_loaders(**dataset_config, args=args)
 
-    def create_model(ema=False): # exponential moving average
+    def create_model(ema=False):
         LOG.info("=> creating {pretrained}{ema}model '{arch}'".format(
             pretrained='pre-trained ' if args.pretrained else '',
             ema='EMA ' if ema else '',
@@ -60,9 +60,9 @@ def main(context):
         model = model_factory(**model_params)
         model = nn.DataParallel(model).cuda()
 
-        if ema:
+        if ema: # exponential moving average, teacher model
             for param in model.parameters():
-                param.detach_()
+                param.detach_() # no training
 
         return model
 
@@ -91,7 +91,7 @@ def main(context):
 
     cudnn.benchmark = True
 
-    if args.evaluate:
+    if args.evaluate: # just do a test on testing set.
         LOG.info("Evaluating the primary model:")
         validate(eval_loader, model, validation_log, global_step, args.start_epoch)
         LOG.info("Evaluating the EMA model:")
@@ -195,11 +195,12 @@ def update_ema_variables(model, ema_model, alpha, global_step):
 
 def train(train_loader, model, ema_model, optimizer, epoch, log):
     global global_step
-
+    # classification loss, TODO:ignore elements with label==-1
     class_criterion = nn.CrossEntropyLoss(size_average=False, ignore_index=NO_LABEL).cuda()
-    if args.consistency_type == 'mse':
+    # consistency loss of 2 models
+    if args.consistency_type == 'mse': # mean-square error
         consistency_criterion = losses.softmax_mse_loss
-    elif args.consistency_type == 'kl':
+    elif args.consistency_type == 'kl': # k-l divergence
         consistency_criterion = losses.softmax_kl_loss
     else:
         assert False, args.consistency_type
@@ -229,13 +230,13 @@ def train(train_loader, model, ema_model, optimizer, epoch, log):
         meters.update('labeled_minibatch_size', labeled_minibatch_size)
 
         ema_model_out = ema_model(ema_input_var)
-        model_out = model(input_var)
+        model_out = model(input_var) # fc1, fc2
 
         if isinstance(model_out, Variable):
             assert args.logit_distance_cost < 0
             logit1 = model_out
             ema_logit = ema_model_out
-        else:
+        else: # this is adopted
             assert len(model_out) == 2
             assert len(ema_model_out) == 2
             logit1, logit2 = model_out
@@ -243,7 +244,7 @@ def train(train_loader, model, ema_model, optimizer, epoch, log):
 
         ema_logit = Variable(ema_logit.detach().data, requires_grad=False)
 
-        if args.logit_distance_cost >= 0:
+        if args.logit_distance_cost >= 0: # loss between 2 outputs of the student model
             class_logit, cons_logit = logit1, logit2
             res_loss = args.logit_distance_cost * residual_logit_criterion(class_logit, cons_logit) / minibatch_size
             meters.update('res_loss', res_loss.data[0])
@@ -257,7 +258,7 @@ def train(train_loader, model, ema_model, optimizer, epoch, log):
         ema_class_loss = class_criterion(ema_logit, target_var) / minibatch_size
         meters.update('ema_class_loss', ema_class_loss.data[0])
 
-        if args.consistency:
+        if args.consistency: # consistency of teacher and student
             consistency_weight = get_current_consistency_weight(epoch)
             meters.update('cons_weight', consistency_weight)
             consistency_loss = consistency_weight * consistency_criterion(cons_logit, ema_logit) / minibatch_size
